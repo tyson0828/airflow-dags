@@ -1,0 +1,80 @@
+Step 1: Install SMB CSI Driver
+
+helm repo add csi-driver-smb https://raw.githubusercontent.com/kubernetes-csi/csi-driver-smb/master/charts
+helm repo update
+
+helm install csi-driver-smb csi-driver-smb/csi-driver-smb \
+  --namespace kube-system \
+  --create-namespace
+
+- Verify it's running
+kubectl get pods -n kube-system | grep smb
+
+
+Step 2: Create a Kubernetes Secret with SMB Credentials
+
+kubectl create secret generic smbcreds \
+  --from-literal=username='YOUR_USERNAME' \
+  --from-literal=password='YOUR_PASSWORD' \
+  --namespace=default
+
+Step 3: Define Persistent Volume (PV) and Persistent Volume Claim (PVC)
+Create a file named smb-pv-pvc.yaml:
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: smb-pv
+spec:
+  capacity:
+    storage: 5Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  csi:
+    driver: smb.csi.k8s.io
+    volumeHandle: smb-vol1
+    volumeAttributes:
+      source: "//192.168.1.100/shared-folder"  # 👈 your SMB path
+    nodeStageSecretRef:
+      name: smbcreds
+      namespace: default
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: smb-pvc
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 5Gi
+  volumeName: smb-pv
+
+apply
+kubectl apply -f smb-pv-pvc.yaml
+
+
+ Step 4: Deploy a Test Pod
+apiVersion: v1
+kind: Pod
+metadata:
+  name: smb-test
+spec:
+  containers:
+  - name: tester
+    image: busybox
+    command: ["/bin/sh", "-c", "sleep 3600"]
+    volumeMounts:
+    - name: smb-vol
+      mountPath: /mnt/smb
+  volumes:
+  - name: smb-vol
+    persistentVolumeClaim:
+      claimName: smb-pvc
+  restartPolicy: Never
+
+
+Step 5: Verify Access
+kubectl exec -it smb-test -- sh
